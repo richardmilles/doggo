@@ -436,6 +436,45 @@ func nameserverHost(ns models.Nameserver) string {
 }
 
 func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) {
+	// On macOS, Supplemental/domain-specific scutil resolvers apply only to
+	// matching query names. Prefer those nameservers when a query falls under
+	// such a domain so the NAMESERVER column reports the resolver that was
+	// actually used (issue #49). Interface-scoped "scoped queries" entries are
+	// never selected here.
+	if matchedNS, domains, ok := config.MatchDomainNameservers(app.QueryFlags.QNames); ok {
+		app.Logger.Debug("Using macOS domain-specific resolver from scutil",
+			"matched_domains", domains,
+			"nameservers", matchedNS,
+			"queries", app.QueryFlags.QNames,
+		)
+
+		ndots, search := app.systemSearchDefaults()
+
+		dnsServers := filterNameserversByIPVersion(matchedNS, app.QueryFlags.UseIPv4, app.QueryFlags.UseIPv6)
+		if len(dnsServers) == 0 {
+			ipVersion := "IPv4"
+			if app.QueryFlags.UseIPv6 {
+				ipVersion = "IPv6"
+			}
+			return nil, ndots, search, fmt.Errorf("no %s nameservers found in domain-specific macOS resolver for %v", ipVersion, domains)
+		}
+
+		servers := make([]models.Nameserver, 0, len(dnsServers))
+		for _, s := range dnsServers {
+			servers = append(servers, models.Nameserver{
+				Type:    models.UDPResolver,
+				Address: net.JoinHostPort(s, models.DefaultUDPPort),
+			})
+		}
+
+		var err error
+		servers, err = app.applyNameserverStrategy(servers, "macos-domain")
+		if err != nil {
+			return nil, ndots, search, fmt.Errorf("%w for domain-specific macOS resolver %v", err, domains)
+		}
+		return servers, ndots, search, nil
+	}
+
 	// Load nameservers from the system resolver configuration. The "internal"
 	// strategy needs to see Supplemental/domain-scoped resolvers (e.g. a VPN or
 	// Tailscale split-DNS resolver), which GetDefaultServers hides, so it sources
@@ -492,6 +531,17 @@ func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) 
 	}
 
 	return servers, ndots, search, nil
+}
+
+// systemSearchDefaults returns ndots/search from the general system resolver
+// configuration (used when a macOS domain-specific resolver supplies the
+// nameservers but search/ndots still come from the host defaults).
+func (app *App) systemSearchDefaults() (int, []string) {
+	_, ndots, search, err := config.GetDefaultServers()
+	if err != nil {
+		return 1, nil
+	}
+	return ndots, search
 }
 
 // loadAuthoritativeNameserver finds the closest enclosing zone for the domain

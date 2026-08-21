@@ -254,3 +254,114 @@ DNS configuration (for scoped queries)
 		t.Fatalf("nameservers mismatch: got %v want %v", gotNameservers, wantNameservers)
 	}
 }
+
+// issue49Scutil mirrors the corporate split-DNS layout from #49: general
+// resolvers would NXDOMAIN the private name, while Supplemental resolver #2
+// for foo.tld answers via 10.100.0.2.
+const issue49Scutil = `
+DNS configuration
+
+resolver #1
+  search domain[0] : foo.tld
+  search domain[3] : hq
+  nameserver[0] : 192.168.1.87
+  nameserver[1] : 192.168.1.1
+  nameserver[2] : 8.8.8.8
+  nameserver[3] : 1.1.1.1
+  if_index : 13 (en4)
+  flags    : Request A records
+  reach    : 0x00020002 (Reachable,Directly Reachable Address)
+
+resolver #2
+  domain   : foo.tld
+  nameserver[0] : 10.100.0.2
+  flags    : Supplemental, Request A records
+  reach    : 0x00000002 (Reachable)
+  order    : 102600
+
+DNS configuration (for scoped queries)
+
+resolver #1
+  search domain[0] : hq
+  nameserver[0] : 192.168.1.87
+  nameserver[1] : 192.168.1.1
+  nameserver[2] : 8.8.8.8
+  nameserver[3] : 1.1.1.1
+  if_index : 13 (en4)
+  flags    : Scoped, Request A records
+  reach    : 0x00020002 (Reachable,Directly Reachable Address)
+
+resolver #3
+  search domain[0] : foo.tld
+  nameserver[0] : 10.100.0.2
+  if_index : 26 (utun10)
+  flags    : Scoped, Request A records
+  reach    : 0x00000002 (Reachable)
+`
+
+func TestMatchDomainNameserversIssue49(t *testing.T) {
+	resolvers, err := parseScutilOutput(issue49Scutil)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	ns, domains, ok := matchDomainNameservers([]string{"logikal.test.record.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for foo.tld query")
+	}
+	if !reflect.DeepEqual(domains, []string{"foo.tld"}) {
+		t.Fatalf("matched domains = %v, want [foo.tld]", domains)
+	}
+	if !reflect.DeepEqual(ns, []string{"10.100.0.2"}) {
+		t.Fatalf("nameservers = %v, want [10.100.0.2]", ns)
+	}
+
+	// Scoped-section servers must never be selected via this path.
+	for _, s := range ns {
+		if s == "192.168.1.87" || s == "8.8.8.8" {
+			t.Fatalf("unexpected general/scoped nameserver selected: %s", s)
+		}
+	}
+
+	_, _, ok = matchDomainNameservers([]string{"example.com"}, resolvers)
+	if ok {
+		t.Fatal("example.com should not match foo.tld domain resolver")
+	}
+}
+
+func TestMatchDomainNameserversLongestWins(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : example.com
+  nameserver[0] : 10.0.0.1
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : corp.example.com
+  nameserver[0] : 10.0.0.2
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	ns, domains, ok := matchDomainNameservers([]string{"app.corp.example.com"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match")
+	}
+	if !reflect.DeepEqual(domains, []string{"corp.example.com"}) {
+		t.Fatalf("matched domains = %v, want [corp.example.com]", domains)
+	}
+	if !reflect.DeepEqual(ns, []string{"10.0.0.2"}) {
+		t.Fatalf("nameservers = %v, want [10.0.0.2]", ns)
+	}
+}
