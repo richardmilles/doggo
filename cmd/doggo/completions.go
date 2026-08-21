@@ -13,7 +13,7 @@ _doggo() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="-v --version -h --help -q --query -t --type -n --nameserver -c --class -r --reverse --any --strategy --ndots --search --timeout -4 --ipv4 -6 --ipv6 --http3 --tls-hostname --skip-hostname-verification --aa --ad --cd --rd --z --do --nsid --cookie --padding --ede --ecs --bufsize -J --json --short --color --debug --time --gp-from --gp-limit --config"
+    opts="-v --version -h --help -q --query -t --type -n --nameserver -c --class -r --reverse --any -A --authoritative --strategy --ndots --search --timeout -4 --ipv4 -6 --ipv6 --http3 --tls-hostname --skip-hostname-verification -b --source --aa --ad --cd --rd --z --do --nsid --cookie --padding --ede --ecs --bufsize -J --json --short --color --debug --time --gp-from --gp-limit --config"
 
     case "${prev}" in
         --config)
@@ -69,6 +69,7 @@ _doggo() {
     '(-c --class)'{-c,--class}'[Network class of the DNS record being queried]:network class:(IN CH HS)' \
     '(-r --reverse)'{-r,--reverse}'[Performs a DNS Lookup for an IPv4 or IPv6 address]' \
     '--any[Query all supported DNS record types]' \
+    '(-A --authoritative)'{-A,--authoritative}'[Find and query authoritative nameservers]' \
     '--strategy[Strategy to query nameservers]:strategy:(all random first internal)' \
     '--ndots[Number of required dots in hostname to assume FQDN]:number of dots' \
     '--search[Use the search list defined in resolv.conf]:setting:(true false)' \
@@ -78,6 +79,7 @@ _doggo() {
     '--http3[Use HTTP/3 for DNS-over-HTTPS nameservers]' \
     '--tls-hostname[Hostname used for verification of certificate incase the provided DoT nameserver is an IP]:hostname:_hosts' \
     '--skip-hostname-verification[Skip TLS hostname verification in case of DoT lookups]' \
+    '(-b --source)'{-b,--source}'[Bind queries to a local source IP address]:ip address' \
     '--aa[Set Authoritative Answer flag]' \
     '--ad[Set Authenticated Data flag]' \
     '--cd[Set Checking Disabled flag]' \
@@ -134,6 +136,7 @@ complete -c doggo -n '__fish_doggo_no_subcommand' -s 'n' -l 'nameserver' -d "Add
 complete -c doggo -n '__fish_doggo_no_subcommand' -s 'c' -l 'class'      -d "Network class of the DNS record being queried" -x -a "IN CH HS"
 complete -c doggo -n '__fish_doggo_no_subcommand' -s 'r' -l 'reverse'    -d "Performs a DNS Lookup for an IPv4 or IPv6 address"
 complete -c doggo -n '__fish_doggo_no_subcommand' -l 'any'               -d "Query all supported DNS record types"
+complete -c doggo -n '__fish_doggo_no_subcommand' -s 'A' -l 'authoritative' -d "Query the domain's authoritative nameservers"
 
 # Resolver options
 complete -c doggo -n '__fish_doggo_no_subcommand' -l 'strategy'  -d "Strategy to query nameservers" -x -a "all random first internal"
@@ -143,6 +146,7 @@ complete -c doggo -n '__fish_doggo_no_subcommand' -l 'timeout'   -d "Specify tim
 complete -c doggo -n '__fish_doggo_no_subcommand' -s '4' -l 'ipv4' -d "Use IPv4 only"
 complete -c doggo -n '__fish_doggo_no_subcommand' -s '6' -l 'ipv6' -d "Use IPv6 only"
 complete -c doggo -n '__fish_doggo_no_subcommand' -l 'http3' -d "Use HTTP/3 for DNS-over-HTTPS nameservers"
+complete -c doggo -n '__fish_doggo_no_subcommand' -s 'b' -l 'source' -d "Bind queries to a local source IP address" -x
 
 # Query flags
 complete -c doggo -n '__fish_doggo_no_subcommand' -l 'aa' -d "Set Authoritative Answer flag"
