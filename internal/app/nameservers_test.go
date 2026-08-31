@@ -271,16 +271,17 @@ func TestPrimaryQueryNames(t *testing.T) {
 func TestEffectiveSearchSettingsMirrorsResolverOptions(t *testing.T) {
 	app := newTestApp()
 
-	// Defaults (QueryFlags.Ndots unset = -1): system values apply.
-	app.QueryFlags.Ndots = -1
+	// Defaults (ResolverOpts.Ndots = -1 as seeded by LoadNameservers):
+	// system values apply.
+	app.ResolverOpts.Ndots = -1
 	app.QueryFlags.UseSearchList = true
 	ndots, search := app.effectiveSearchSettings(2, []string{"foo.tld"})
 	if ndots != 2 || !reflect.DeepEqual(search, []string{"foo.tld"}) {
 		t.Fatalf("got ndots=%d search=%v, want 2 [foo.tld]", ndots, search)
 	}
 
-	// --ndots wins; --search=false suppresses the system search list.
-	app.QueryFlags.Ndots = 5
+	// Configured ndots wins; --search=false suppresses the system search list.
+	app.ResolverOpts.Ndots = 5
 	app.QueryFlags.UseSearchList = false
 	ndots, search = app.effectiveSearchSettings(2, []string{"foo.tld"})
 	if ndots != 5 {

@@ -15,3 +15,6 @@ type DomainNameserver struct {
 	IP   string
 	Port int
 }
+
+// defaultDNSPort mirrors models.DefaultUDPPort for numeric comparisons.
+const defaultDNSPort = 53

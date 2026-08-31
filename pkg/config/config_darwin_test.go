@@ -583,3 +583,39 @@ DNS configuration (for scoped queries)
 		t.Fatalf("nameservers = %v, want %v", ns, want)
 	}
 }
+
+func TestMatchDomainNameserversDeduplicatesDefaultPort(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  port     : 53
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	ns, _, ok := matchDomainNameservers([]string{"host.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for foo.tld")
+	}
+	// An omitted port and an explicit port 53 are the same endpoint.
+	if len(ns) != 1 || ns[0].IP != "10.0.0.2" {
+		t.Fatalf("nameservers = %v, want a single 10.0.0.2 entry", ns)
+	}
+}

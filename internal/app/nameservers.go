@@ -586,12 +586,14 @@ func (app *App) systemSearchDefaults() (int, []string) {
 }
 
 // effectiveSearchSettings resolves the ndots/search values that resolvers
-// will actually use: a configured ndots (--ndots, -1 when unset) wins over
-// the system default, and the system search list applies only when the user
-// did not disable it. Split-DNS matching must use the same values or it
-// would select a resolver for a name that is never queried.
+// will actually use. LoadNameservers seeds ResolverOpts.Ndots from --ndots
+// before the system path runs, so at match time it already holds the final
+// configured value (-1 when unset, to be filled from the system); the system
+// search list applies only when the user did not disable it. Split-DNS
+// matching must use the same values or it would select a resolver for a name
+// that is never queried.
 func (app *App) effectiveSearchSettings(sysNdots int, sysSearch []string) (int, []string) {
-	ndots := app.QueryFlags.Ndots
+	ndots := app.ResolverOpts.Ndots
 	if ndots == -1 {
 		ndots = sysNdots
 	}

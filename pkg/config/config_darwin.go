@@ -345,14 +345,20 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 			}
 			for _, ns := range r.nameservers {
 				ip := net.ParseIP(ns)
-				// Deduplicate on IP and port: the same IP on two ports (or
-				// via two resolver records) is a distinct endpoint.
 				entry := DomainNameserver{IP: ns, Port: r.port}
-				if isUnicastLinkLocal(ip) || seenNS[entry] {
+				// Deduplicate on IP and effective port (0 means the default
+				// DNS port): the same IP on two ports is a distinct
+				// endpoint, but an omitted port and an explicit "53" are the
+				// same endpoint.
+				dedupKey := entry
+				if dedupKey.Port == 0 {
+					dedupKey.Port = defaultDNSPort
+				}
+				if isUnicastLinkLocal(ip) || seenNS[dedupKey] {
 					continue
 				}
 				nameservers = append(nameservers, entry)
-				seenNS[entry] = true
+				seenNS[dedupKey] = true
 			}
 		}
 	}
