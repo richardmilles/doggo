@@ -278,10 +278,10 @@ func isDomainSpecific(r scutilResolver) bool {
 // matchDomainNameservers picks domain-specific resolvers whose domain is a
 // suffix of a query name. Longest match wins per name; nameservers from all
 // winning matches are unioned (order preserved, duplicates dropped). The
-// match is all-or-nothing: if any query name matches no domain resolver, ok
-// is false and the caller falls back to the general system resolvers, so a
-// mixed public/internal batch is never forced through a split-DNS resolver
-// that may not resolve public names.
+// match is all-or-nothing: if any query name matches no domain resolver, or
+// different names match different domains (doggo routes all questions through
+// one nameserver list and cannot partition per question), ok is false and the
+// caller falls back to the general system resolvers.
 func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]string, []string, bool) {
 	domainResolvers := make([]scutilResolver, 0)
 	for _, r := range resolvers {
@@ -320,6 +320,12 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 
 		best := domainResolvers[bestIdx]
 		domain := normalizeDNSName(best.domain)
+		if len(matchedDomains) > 0 && matchedDomains[0] != domain {
+			// Names from different split-DNS domains would need per-question
+			// resolver routing, which doggo does not do; fall back to the
+			// general list instead of leaking queries across domains.
+			return nil, nil, false
+		}
 		if !seenDomain[domain] {
 			matchedDomains = append(matchedDomains, domain)
 			seenDomain[domain] = true

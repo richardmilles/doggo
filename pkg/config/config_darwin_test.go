@@ -337,6 +337,48 @@ func TestMatchDomainNameserversIssue49(t *testing.T) {
 	}
 }
 
+func TestMatchDomainNameserversDistinctDomainsFallback(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : one.example
+  nameserver[0] : 10.0.0.1
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : two.example
+  nameserver[0] : 10.0.0.2
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	// Names from two different split-DNS domains cannot be served by a
+	// single nameserver list; the selection must fall back to general.
+	_, _, ok := matchDomainNameservers([]string{"a.one.example", "b.two.example"}, resolvers)
+	if ok {
+		t.Fatal("distinct matched domains must fall back to the general list")
+	}
+
+	// Same domain for both names is fine.
+	ns, _, ok := matchDomainNameservers([]string{"a.one.example", "b.one.example"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for same-domain batch")
+	}
+	if !reflect.DeepEqual(ns, []string{"10.0.0.1"}) {
+		t.Fatalf("nameservers = %v, want [10.0.0.1]", ns)
+	}
+}
+
 func TestMatchDomainNameserversLongestWins(t *testing.T) {
 	input := `
 DNS configuration

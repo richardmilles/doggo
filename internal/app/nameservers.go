@@ -441,38 +441,46 @@ func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) 
 	// such a domain so the NAMESERVER column reports the resolver that was
 	// actually used (issue #49). Interface-scoped "scoped queries" entries are
 	// never selected here.
-	if matchedNS, domains, ok := config.MatchDomainNameservers(app.QueryFlags.QNames); ok {
-		app.Logger.Debug("Using macOS domain-specific resolver from scutil",
-			"matched_domains", domains,
-			"nameservers", matchedNS,
-			"queries", app.QueryFlags.QNames,
-		)
+	//
+	// Search-domain and ndots expansion happens inside each resolver (see
+	// resolvers.constructPossibleQuestions), so match against the *primary*
+	// name each resolver will try first, not the raw argument. This keeps
+	// `doggo host` with search domain `foo.tld` on the supplemental resolver
+	// for foo.tld while `doggo host.example.com` (enough dots, tried bare
+	// first) is not hijacked by a search-list domain.
+	ndots, search := app.systemSearchDefaults()
+	if primaries := primaryQueryNames(app.QueryFlags.QNames, ndots, search); len(primaries) > 0 {
+		if matchedNS, domains, ok := config.MatchDomainNameservers(primaries); ok {
+			app.Logger.Debug("Using macOS domain-specific resolver from scutil",
+				"matched_domains", domains,
+				"nameservers", matchedNS,
+				"queries", primaries,
+			)
 
-		ndots, search := app.systemSearchDefaults()
-
-		dnsServers := filterNameserversByIPVersion(matchedNS, app.QueryFlags.UseIPv4, app.QueryFlags.UseIPv6)
-		if len(dnsServers) == 0 {
-			ipVersion := "IPv4"
-			if app.QueryFlags.UseIPv6 {
-				ipVersion = "IPv6"
+			dnsServers := filterNameserversByIPVersion(matchedNS, app.QueryFlags.UseIPv4, app.QueryFlags.UseIPv6)
+			if len(dnsServers) == 0 {
+				ipVersion := "IPv4"
+				if app.QueryFlags.UseIPv6 {
+					ipVersion = "IPv6"
+				}
+				return nil, ndots, search, fmt.Errorf("no %s nameservers found in domain-specific macOS resolver for %v", ipVersion, domains)
 			}
-			return nil, ndots, search, fmt.Errorf("no %s nameservers found in domain-specific macOS resolver for %v", ipVersion, domains)
-		}
 
-		servers := make([]models.Nameserver, 0, len(dnsServers))
-		for _, s := range dnsServers {
-			servers = append(servers, models.Nameserver{
-				Type:    models.UDPResolver,
-				Address: net.JoinHostPort(s, models.DefaultUDPPort),
-			})
-		}
+			servers := make([]models.Nameserver, 0, len(dnsServers))
+			for _, s := range dnsServers {
+				servers = append(servers, models.Nameserver{
+					Type:    models.UDPResolver,
+					Address: net.JoinHostPort(s, models.DefaultUDPPort),
+				})
+			}
 
-		var err error
-		servers, err = app.applyNameserverStrategy(servers, "macos-domain")
-		if err != nil {
-			return nil, ndots, search, fmt.Errorf("%w for domain-specific macOS resolver %v", err, domains)
+			var err error
+			servers, err = app.applyNameserverStrategy(servers, "macos-domain")
+			if err != nil {
+				return nil, ndots, search, fmt.Errorf("%w for domain-specific macOS resolver %v", err, domains)
+			}
+			return servers, ndots, search, nil
 		}
-		return servers, ndots, search, nil
 	}
 
 	// Load nameservers from the system resolver configuration. The "internal"
@@ -542,6 +550,33 @@ func (app *App) systemSearchDefaults() (int, []string) {
 		return 1, nil
 	}
 	return ndots, search
+}
+
+// primaryQueryNames returns, for each query name, the first name a resolver
+// will actually try, mirroring the ordering of
+// resolvers.constructPossibleQuestions: an FQDN is queried as-is; otherwise a
+// name with more labels than ndots is tried bare first, and a name with fewer
+// labels is tried with the first search-domain suffix first. Matching macOS
+// domain-specific resolvers on these primaries keeps split-DNS selection in
+// sync with what is actually queried.
+func primaryQueryNames(qnames []string, ndots int, search []string) []string {
+	primaries := make([]string, 0, len(qnames))
+	for _, qname := range qnames {
+		if dns.IsFqdn(qname) {
+			primaries = append(primaries, qname)
+			continue
+		}
+		if dns.CountLabel(qname) > ndots {
+			primaries = append(primaries, qname)
+			continue
+		}
+		if len(search) > 0 {
+			primaries = append(primaries, strings.TrimSuffix(qname, ".")+"."+strings.TrimSuffix(search[0], "."))
+			continue
+		}
+		primaries = append(primaries, qname)
+	}
+	return primaries
 }
 
 // loadAuthoritativeNameserver finds the closest enclosing zone for the domain

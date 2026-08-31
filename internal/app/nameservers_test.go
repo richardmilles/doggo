@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -214,6 +215,54 @@ func TestInitNameserverClassifiesPort853AsDoT(t *testing.T) {
 			}
 			if ns.Type != tc.wantType {
 				t.Fatalf("initNameserver(%q) type = %v, want %v", tc.input, ns.Type, tc.wantType)
+			}
+		})
+	}
+}
+
+func TestPrimaryQueryNames(t *testing.T) {
+	tests := []struct {
+		name   string
+		qnames []string
+		ndots  int
+		search []string
+		want   []string
+	}{
+		{
+			name:   "fqdn is queried as-is",
+			qnames: []string{"host.foo.tld."},
+			ndots:  1,
+			search: []string{"bar.tld"},
+			want:   []string{"host.foo.tld."},
+		},
+		{
+			name:   "enough dots tries bare name first",
+			qnames: []string{"host.example.com"},
+			ndots:  1,
+			search: []string{"foo.tld"},
+			want:   []string{"host.example.com"},
+		},
+		{
+			name:   "too few dots tries first search suffix first",
+			qnames: []string{"host"},
+			ndots:  1,
+			search: []string{"foo.tld", "hq"},
+			want:   []string{"host.foo.tld"},
+		},
+		{
+			name:   "no search list falls back to bare name",
+			qnames: []string{"host"},
+			ndots:  1,
+			search: nil,
+			want:   []string{"host"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := primaryQueryNames(tc.qnames, tc.ndots, tc.search)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("primaryQueryNames(%v, %d, %v) = %v, want %v", tc.qnames, tc.ndots, tc.search, got, tc.want)
 			}
 		})
 	}
