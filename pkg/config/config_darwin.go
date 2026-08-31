@@ -46,9 +46,11 @@ func GetAllServers() ([]string, int, []string, error) {
 
 // MatchDomainNameservers selects nameservers for query names that fall under a
 // macOS Supplemental/domain-specific scutil resolver. Longest domain match wins
-// per query name. ok is false when nothing matches (caller should use the
-// general-purpose list). The interface-scoped "DNS configuration (for scoped
-// queries)" section is never consulted.
+// per query name. ok is true only when every query name falls under such a
+// resolver — a mix of matching and non-matching names stays on the
+// general-purpose list so unrelated names are not sent to a split-DNS
+// resolver. The interface-scoped "DNS configuration (for scoped queries)"
+// section is never consulted.
 func MatchDomainNameservers(queryNames []string) (nameservers []string, matchedDomains []string, ok bool) {
 	if len(queryNames) == 0 {
 		return nil, nil, false
@@ -274,8 +276,12 @@ func isDomainSpecific(r scutilResolver) bool {
 }
 
 // matchDomainNameservers picks domain-specific resolvers whose domain is a
-// suffix of any query name. Longest match wins per name; nameservers from all
-// winning matches are unioned (order preserved, duplicates dropped).
+// suffix of a query name. Longest match wins per name; nameservers from all
+// winning matches are unioned (order preserved, duplicates dropped). The
+// match is all-or-nothing: if any query name matches no domain resolver, ok
+// is false and the caller falls back to the general system resolvers, so a
+// mixed public/internal batch is never forced through a split-DNS resolver
+// that may not resolve public names.
 func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]string, []string, bool) {
 	domainResolvers := make([]scutilResolver, 0)
 	for _, r := range resolvers {
@@ -307,7 +313,9 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 			}
 		}
 		if bestIdx < 0 {
-			continue
+			// This name belongs to no split-DNS domain; forcing it through
+			// another name's domain resolver could break public resolution.
+			return nil, nil, false
 		}
 
 		best := domainResolvers[bestIdx]

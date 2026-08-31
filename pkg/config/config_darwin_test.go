@@ -327,6 +327,14 @@ func TestMatchDomainNameserversIssue49(t *testing.T) {
 	if ok {
 		t.Fatal("example.com should not match foo.tld domain resolver")
 	}
+
+	// A mix of matching and non-matching names must stay on the general
+	// list rather than routing the public name through the split-DNS
+	// resolver.
+	_, _, ok = matchDomainNameservers([]string{"logikal.test.record.foo.tld", "example.com"}, resolvers)
+	if ok {
+		t.Fatal("mixed matching/non-matching query names must not take the domain-specific path")
+	}
 }
 
 func TestMatchDomainNameserversLongestWins(t *testing.T) {
