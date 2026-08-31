@@ -539,3 +539,47 @@ DNS configuration (for scoped queries)
 		t.Fatalf("nameservers = %v, want default port (0) for bar.tld", ns)
 	}
 }
+
+func TestMatchDomainNameserversDeduplicatesIPAndPort(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  port     : 5353
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  flags    : Supplemental, Request A records
+
+resolver #4
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  port     : 5353
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	ns, _, ok := matchDomainNameservers([]string{"host.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for foo.tld")
+	}
+	// 10.0.0.2:5353 (records 2 and 4, deduplicated) and 10.0.0.2:53
+	// (record 3) are distinct endpoints and must all be kept.
+	want := []DomainNameserver{{IP: "10.0.0.2", Port: 5353}, {IP: "10.0.0.2"}}
+	if !reflect.DeepEqual(ns, want) {
+		t.Fatalf("nameservers = %v, want %v", ns, want)
+	}
+}

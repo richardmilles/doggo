@@ -304,7 +304,7 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 		return nil, nil, false
 	}
 
-	seenNS := make(map[string]bool)
+	seenNS := make(map[DomainNameserver]bool)
 	seenDomain := make(map[string]bool)
 	nameservers := make([]DomainNameserver, 0)
 	matchedDomains := make([]string, 0)
@@ -345,11 +345,14 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 			}
 			for _, ns := range r.nameservers {
 				ip := net.ParseIP(ns)
-				if isUnicastLinkLocal(ip) || seenNS[ns] {
+				// Deduplicate on IP and port: the same IP on two ports (or
+				// via two resolver records) is a distinct endpoint.
+				entry := DomainNameserver{IP: ns, Port: r.port}
+				if isUnicastLinkLocal(ip) || seenNS[entry] {
 					continue
 				}
-				nameservers = append(nameservers, DomainNameserver{IP: ns, Port: r.port})
-				seenNS[ns] = true
+				nameservers = append(nameservers, entry)
+				seenNS[entry] = true
 			}
 		}
 	}

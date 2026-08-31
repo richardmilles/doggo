@@ -271,16 +271,16 @@ func TestPrimaryQueryNames(t *testing.T) {
 func TestEffectiveSearchSettingsMirrorsResolverOptions(t *testing.T) {
 	app := newTestApp()
 
-	// Defaults: system values apply.
-	app.ResolverOpts.Ndots = -1
+	// Defaults (QueryFlags.Ndots unset = -1): system values apply.
+	app.QueryFlags.Ndots = -1
 	app.QueryFlags.UseSearchList = true
 	ndots, search := app.effectiveSearchSettings(2, []string{"foo.tld"})
 	if ndots != 2 || !reflect.DeepEqual(search, []string{"foo.tld"}) {
 		t.Fatalf("got ndots=%d search=%v, want 2 [foo.tld]", ndots, search)
 	}
 
-	// Configured ndots wins; disabled search list suppresses system search.
-	app.ResolverOpts.Ndots = 5
+	// --ndots wins; --search=false suppresses the system search list.
+	app.QueryFlags.Ndots = 5
 	app.QueryFlags.UseSearchList = false
 	ndots, search = app.effectiveSearchSettings(2, []string{"foo.tld"})
 	if ndots != 5 {
@@ -289,13 +289,42 @@ func TestEffectiveSearchSettingsMirrorsResolverOptions(t *testing.T) {
 	if len(search) != 0 {
 		t.Fatalf("search = %v, want none", search)
 	}
+}
 
-	// An explicitly configured search list is honored even with --search=false,
-	// matching loadSystemNameservers (only the system list is suppressed).
-	app.ResolverOpts.SearchList = []string{"bar.tld"}
-	_, search = app.effectiveSearchSettings(2, []string{"foo.tld"})
-	if !reflect.DeepEqual(search, []string{"bar.tld"}) {
-		t.Fatalf("search = %v, want [bar.tld]", search)
+func TestLoadSystemNameserversSeedsNdotsFromFlags(t *testing.T) {
+	// Unset --ndots (-1): system ndots (2) must reach the resolvers.
+	app := newTestApp()
+	app.QueryFlags.Ndots = -1
+	app.QueryFlags.UseSearchList = true
+	err := app.loadSystemNameserversWith(func() ([]models.Nameserver, int, []string, error) {
+		return nil, 2, []string{"foo.tld"}, nil
+	})
+	if err != nil {
+		t.Fatalf("loadSystemNameserversWith: %v", err)
+	}
+	if app.ResolverOpts.Ndots != 2 {
+		t.Fatalf("ResolverOpts.Ndots = %d, want system 2", app.ResolverOpts.Ndots)
+	}
+	if !reflect.DeepEqual(app.ResolverOpts.SearchList, []string{"foo.tld"}) {
+		t.Fatalf("ResolverOpts.SearchList = %v, want [foo.tld]", app.ResolverOpts.SearchList)
+	}
+
+	// Explicit --ndots=5 must win over the system value instead of being
+	// dropped (previously the flag never reached the resolvers).
+	app = newTestApp()
+	app.QueryFlags.Ndots = 5
+	app.QueryFlags.UseSearchList = false
+	err = app.loadSystemNameserversWith(func() ([]models.Nameserver, int, []string, error) {
+		return nil, 2, []string{"foo.tld"}, nil
+	})
+	if err != nil {
+		t.Fatalf("loadSystemNameserversWith: %v", err)
+	}
+	if app.ResolverOpts.Ndots != 5 {
+		t.Fatalf("ResolverOpts.Ndots = %d, want 5", app.ResolverOpts.Ndots)
+	}
+	if len(app.ResolverOpts.SearchList) != 0 {
+		t.Fatalf("ResolverOpts.SearchList = %v, want none with --search=false", app.ResolverOpts.SearchList)
 	}
 }
 
