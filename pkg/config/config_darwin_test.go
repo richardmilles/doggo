@@ -379,6 +379,45 @@ DNS configuration (for scoped queries)
 	}
 }
 
+func TestMatchDomainNameserversUnionsSameDomainResolvers(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.2
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : foo.tld
+  nameserver[0] : 10.0.0.3
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	// Two resolver records for the same domain must both contribute
+	// nameservers instead of keeping only the first record.
+	ns, domains, ok := matchDomainNameservers([]string{"host.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for foo.tld")
+	}
+	if !reflect.DeepEqual(domains, []string{"foo.tld"}) {
+		t.Fatalf("matched domains = %v, want [foo.tld]", domains)
+	}
+	if !reflect.DeepEqual(ns, []string{"10.0.0.2", "10.0.0.3"}) {
+		t.Fatalf("nameservers = %v, want [10.0.0.2 10.0.0.3]", ns)
+	}
+}
+
 func TestMatchDomainNameserversLongestWins(t *testing.T) {
 	input := `
 DNS configuration

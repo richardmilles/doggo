@@ -15,6 +15,7 @@ import (
 	"github.com/mr-karan/doggo/pkg/config"
 	"github.com/mr-karan/doggo/pkg/models"
 	"github.com/mr-karan/doggo/pkg/resolvers"
+	"golang.org/x/net/idna"
 )
 
 // ErrSystemNameservers identifies failures to load the host's resolver
@@ -448,7 +449,8 @@ func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) 
 	// `doggo host` with search domain `foo.tld` on the supplemental resolver
 	// for foo.tld while `doggo host.example.com` (enough dots, tried bare
 	// first) is not hijacked by a search-list domain.
-	ndots, search := app.systemSearchDefaults()
+	sysNdots, sysSearch := app.systemSearchDefaults()
+	ndots, search := app.effectiveSearchSettings(sysNdots, sysSearch)
 	if primaries := primaryQueryNames(app.QueryFlags.QNames, ndots, search); len(primaries) > 0 {
 		if matchedNS, domains, ok := config.MatchDomainNameservers(primaries); ok {
 			app.Logger.Debug("Using macOS domain-specific resolver from scutil",
@@ -552,16 +554,38 @@ func (app *App) systemSearchDefaults() (int, []string) {
 	return ndots, search
 }
 
+// effectiveSearchSettings resolves the ndots/search values that resolvers
+// will actually use, mirroring loadSystemNameservers: a configured ndots (not
+// -1) wins over the system default, and the system search list applies only
+// when the user did not disable it. Split-DNS matching must use the same
+// values or it would select a resolver for a name that is never queried.
+func (app *App) effectiveSearchSettings(sysNdots int, sysSearch []string) (int, []string) {
+	ndots := app.ResolverOpts.Ndots
+	if ndots == -1 {
+		ndots = sysNdots
+	}
+	search := app.ResolverOpts.SearchList
+	if len(search) == 0 && app.QueryFlags.UseSearchList {
+		search = sysSearch
+	}
+	return ndots, search
+}
+
 // primaryQueryNames returns, for each query name, the first name a resolver
 // will actually try, mirroring the ordering of
 // resolvers.constructPossibleQuestions: an FQDN is queried as-is; otherwise a
 // name with more labels than ndots is tried bare first, and a name with fewer
-// labels is tried with the first search-domain suffix first. Matching macOS
+// labels is tried with the first search-domain suffix first. Names are
+// converted to IDNA ASCII because the DNS questions built from them (see
+// prepareQuestions) and scutil domain entries are punycode. Matching macOS
 // domain-specific resolvers on these primaries keeps split-DNS selection in
 // sync with what is actually queried.
 func primaryQueryNames(qnames []string, ndots int, search []string) []string {
 	primaries := make([]string, 0, len(qnames))
 	for _, qname := range qnames {
+		if ascii, err := idna.ToASCII(qname); err == nil {
+			qname = ascii
+		}
 		if dns.IsFqdn(qname) {
 			primaries = append(primaries, qname)
 			continue

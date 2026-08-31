@@ -300,43 +300,47 @@ func matchDomainNameservers(queryNames []string, resolvers []scutilResolver) ([]
 	matchedDomains := make([]string, 0)
 
 	for _, qname := range queryNames {
-		bestIdx := -1
-		bestLen := -1
-		for i, r := range domainResolvers {
+		bestDomain := ""
+		for _, r := range domainResolvers {
 			domain := normalizeDNSName(r.domain)
 			if domain == "" || !nameUnderDomain(qname, domain) {
 				continue
 			}
-			if len(domain) > bestLen {
-				bestLen = len(domain)
-				bestIdx = i
+			if len(domain) > len(bestDomain) {
+				bestDomain = domain
 			}
 		}
-		if bestIdx < 0 {
+		if bestDomain == "" {
 			// This name belongs to no split-DNS domain; forcing it through
 			// another name's domain resolver could break public resolution.
 			return nil, nil, false
 		}
 
-		best := domainResolvers[bestIdx]
-		domain := normalizeDNSName(best.domain)
-		if len(matchedDomains) > 0 && matchedDomains[0] != domain {
+		if len(matchedDomains) > 0 && matchedDomains[0] != bestDomain {
 			// Names from different split-DNS domains would need per-question
 			// resolver routing, which doggo does not do; fall back to the
 			// general list instead of leaking queries across domains.
 			return nil, nil, false
 		}
-		if !seenDomain[domain] {
-			matchedDomains = append(matchedDomains, domain)
-			seenDomain[domain] = true
+		if !seenDomain[bestDomain] {
+			matchedDomains = append(matchedDomains, bestDomain)
+			seenDomain[bestDomain] = true
 		}
-		for _, ns := range best.nameservers {
-			ip := net.ParseIP(ns)
-			if isUnicastLinkLocal(ip) || seenNS[ns] {
+		// macOS can list several resolver records for the same domain (for
+		// example one per VPN interface); union their nameservers in scutil
+		// order so none of the domain's resolvers is silently dropped.
+		for _, r := range domainResolvers {
+			if normalizeDNSName(r.domain) != bestDomain {
 				continue
 			}
-			nameservers = append(nameservers, ns)
-			seenNS[ns] = true
+			for _, ns := range r.nameservers {
+				ip := net.ParseIP(ns)
+				if isUnicastLinkLocal(ip) || seenNS[ns] {
+					continue
+				}
+				nameservers = append(nameservers, ns)
+				seenNS[ns] = true
+			}
 		}
 	}
 

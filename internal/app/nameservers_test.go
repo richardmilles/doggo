@@ -267,3 +267,42 @@ func TestPrimaryQueryNames(t *testing.T) {
 		})
 	}
 }
+
+func TestEffectiveSearchSettingsMirrorsResolverOptions(t *testing.T) {
+	app := newTestApp()
+
+	// Defaults: system values apply.
+	app.ResolverOpts.Ndots = -1
+	app.QueryFlags.UseSearchList = true
+	ndots, search := app.effectiveSearchSettings(2, []string{"foo.tld"})
+	if ndots != 2 || !reflect.DeepEqual(search, []string{"foo.tld"}) {
+		t.Fatalf("got ndots=%d search=%v, want 2 [foo.tld]", ndots, search)
+	}
+
+	// Configured ndots wins; disabled search list suppresses system search.
+	app.ResolverOpts.Ndots = 5
+	app.QueryFlags.UseSearchList = false
+	ndots, search = app.effectiveSearchSettings(2, []string{"foo.tld"})
+	if ndots != 5 {
+		t.Fatalf("ndots = %d, want 5", ndots)
+	}
+	if len(search) != 0 {
+		t.Fatalf("search = %v, want none", search)
+	}
+
+	// An explicitly configured search list is honored even with --search=false,
+	// matching loadSystemNameservers (only the system list is suppressed).
+	app.ResolverOpts.SearchList = []string{"bar.tld"}
+	_, search = app.effectiveSearchSettings(2, []string{"foo.tld"})
+	if !reflect.DeepEqual(search, []string{"bar.tld"}) {
+		t.Fatalf("search = %v, want [bar.tld]", search)
+	}
+}
+
+func TestPrimaryQueryNamesConvertsIDNA(t *testing.T) {
+	got := primaryQueryNames([]string{"köln.example"}, 1, nil)
+	want := []string{"xn--kln-sna.example"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("primaryQueryNames IDNA = %v, want %v", got, want)
+	}
+}
