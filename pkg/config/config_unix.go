@@ -1,3 +1,4 @@
+//go:build !windows && !darwin
 // +build !windows,!darwin
 
 package config
@@ -37,6 +38,6 @@ func GetAllServers() ([]string, int, []string, error) {
 }
 
 // MatchDomainNameservers is a no-op on non-macOS platforms.
-func MatchDomainNameservers(queryNames []string) (nameservers []string, matchedDomains []string, ok bool) {
+func MatchDomainNameservers(queryNames []string) (nameservers []DomainNameserver, matchedDomains []string, ok bool) {
 	return nil, nil, false
 }

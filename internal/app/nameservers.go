@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -352,6 +353,25 @@ func filterNameserversByIPVersion(servers []string, useIPv4, useIPv6 bool) []str
 	return filtered
 }
 
+// filterDomainNameserversByIPVersion filters macOS domain-specific
+// nameservers based on IPv4/IPv6 flags.
+func filterDomainNameserversByIPVersion(servers []config.DomainNameserver, useIPv4, useIPv6 bool) []config.DomainNameserver {
+	if !useIPv4 && !useIPv6 {
+		return servers
+	}
+
+	filtered := make([]config.DomainNameserver, 0, len(servers))
+	for _, srv := range servers {
+		if useIPv4 && isIPv4(srv.IP) {
+			filtered = append(filtered, srv)
+		} else if useIPv6 && isIPv6(srv.IP) {
+			filtered = append(filtered, srv)
+		}
+	}
+
+	return filtered
+}
+
 // applyNameserverStrategy narrows the supplied nameserver list according to
 // app.QueryFlags.Strategy and emits debug logs describing what it did. The
 // source argument labels the origin of the list (e.g. "explicit" for CLI
@@ -459,7 +479,7 @@ func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) 
 				"queries", primaries,
 			)
 
-			dnsServers := filterNameserversByIPVersion(matchedNS, app.QueryFlags.UseIPv4, app.QueryFlags.UseIPv6)
+			dnsServers := filterDomainNameserversByIPVersion(matchedNS, app.QueryFlags.UseIPv4, app.QueryFlags.UseIPv6)
 			if len(dnsServers) == 0 {
 				ipVersion := "IPv4"
 				if app.QueryFlags.UseIPv6 {
@@ -470,9 +490,13 @@ func (app *App) getDefaultServers() ([]models.Nameserver, int, []string, error) 
 
 			servers := make([]models.Nameserver, 0, len(dnsServers))
 			for _, s := range dnsServers {
+				port := models.DefaultUDPPort
+				if s.Port > 0 {
+					port = strconv.Itoa(s.Port)
+				}
 				servers = append(servers, models.Nameserver{
 					Type:    models.UDPResolver,
-					Address: net.JoinHostPort(s, models.DefaultUDPPort),
+					Address: net.JoinHostPort(s.IP, port),
 				})
 			}
 

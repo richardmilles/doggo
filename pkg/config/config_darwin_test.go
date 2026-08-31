@@ -312,14 +312,14 @@ func TestMatchDomainNameserversIssue49(t *testing.T) {
 	if !reflect.DeepEqual(domains, []string{"foo.tld"}) {
 		t.Fatalf("matched domains = %v, want [foo.tld]", domains)
 	}
-	if !reflect.DeepEqual(ns, []string{"10.100.0.2"}) {
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.100.0.2"}}) {
 		t.Fatalf("nameservers = %v, want [10.100.0.2]", ns)
 	}
 
 	// Scoped-section servers must never be selected via this path.
 	for _, s := range ns {
-		if s == "192.168.1.87" || s == "8.8.8.8" {
-			t.Fatalf("unexpected general/scoped nameserver selected: %s", s)
+		if s.IP == "192.168.1.87" || s.IP == "8.8.8.8" {
+			t.Fatalf("unexpected general/scoped nameserver selected: %s", s.IP)
 		}
 	}
 
@@ -374,7 +374,7 @@ DNS configuration (for scoped queries)
 	if !ok {
 		t.Fatal("expected domain match for same-domain batch")
 	}
-	if !reflect.DeepEqual(ns, []string{"10.0.0.1"}) {
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.0.0.1"}}) {
 		t.Fatalf("nameservers = %v, want [10.0.0.1]", ns)
 	}
 }
@@ -413,7 +413,7 @@ DNS configuration (for scoped queries)
 	if !reflect.DeepEqual(domains, []string{"foo.tld"}) {
 		t.Fatalf("matched domains = %v, want [foo.tld]", domains)
 	}
-	if !reflect.DeepEqual(ns, []string{"10.0.0.2", "10.0.0.3"}) {
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.0.0.2"}, {IP: "10.0.0.3"}}) {
 		t.Fatalf("nameservers = %v, want [10.0.0.2 10.0.0.3]", ns)
 	}
 }
@@ -450,7 +450,92 @@ DNS configuration (for scoped queries)
 	if !reflect.DeepEqual(domains, []string{"corp.example.com"}) {
 		t.Fatalf("matched domains = %v, want [corp.example.com]", domains)
 	}
-	if !reflect.DeepEqual(ns, []string{"10.0.0.2"}) {
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.0.0.2"}}) {
 		t.Fatalf("nameservers = %v, want [10.0.0.2]", ns)
+	}
+}
+
+func TestMatchDomainNameserversWildcardDomain(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : *.foo.tld
+  nameserver[0] : 10.100.0.2
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	// Subdomains of a wildcard match domain must select the resolver...
+	ns, _, ok := matchDomainNameservers([]string{"a.b.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected wildcard domain match for subdomain")
+	}
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.100.0.2"}}) {
+		t.Fatalf("nameservers = %v, want [10.100.0.2]", ns)
+	}
+
+	// ...and so must the apex itself.
+	_, _, ok = matchDomainNameservers([]string{"foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected wildcard domain match for apex")
+	}
+
+	// Names outside the wildcard must not match.
+	_, _, ok = matchDomainNameservers([]string{"foo.tld.example.com"}, resolvers)
+	if ok {
+		t.Fatal("name outside wildcard domain must not match")
+	}
+}
+
+func TestMatchDomainNameserversPreservesPort(t *testing.T) {
+	input := `
+DNS configuration
+
+resolver #1
+  nameserver[0] : 8.8.8.8
+  flags    : Request A records
+
+resolver #2
+  domain   : foo.tld
+  nameserver[0] : 10.100.0.2
+  port     : 5353
+  flags    : Supplemental, Request A records
+
+resolver #3
+  domain   : bar.tld
+  nameserver[0] : 10.100.0.3
+  flags    : Supplemental, Request A records
+
+DNS configuration (for scoped queries)
+`
+	resolvers, err := parseScutilOutput(input)
+	if err != nil {
+		t.Fatalf("parseScutilOutput error: %v", err)
+	}
+
+	ns, _, ok := matchDomainNameservers([]string{"host.foo.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for foo.tld")
+	}
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.100.0.2", Port: 5353}}) {
+		t.Fatalf("nameservers = %v, want custom port 5353 preserved", ns)
+	}
+
+	ns, _, ok = matchDomainNameservers([]string{"host.bar.tld"}, resolvers)
+	if !ok {
+		t.Fatal("expected domain match for bar.tld")
+	}
+	if !reflect.DeepEqual(ns, []DomainNameserver{{IP: "10.100.0.3"}}) {
+		t.Fatalf("nameservers = %v, want default port (0) for bar.tld", ns)
 	}
 }
