@@ -291,10 +291,12 @@ func TestEffectiveSearchSettingsMirrorsResolverOptions(t *testing.T) {
 	}
 }
 
-func TestLoadSystemNameserversSeedsNdotsFromFlags(t *testing.T) {
-	// Unset --ndots (-1): system ndots (2) must reach the resolvers.
+func TestLoadSystemNameserversMergesNdotsAndSearch(t *testing.T) {
+	// LoadNameservers seeds ResolverOpts.Ndots = -1 when --ndots is unset;
+	// the system loader must then fill the system value (2) and apply the
+	// system search list.
 	app := newTestApp()
-	app.QueryFlags.Ndots = -1
+	app.ResolverOpts.Ndots = -1
 	app.QueryFlags.UseSearchList = true
 	err := app.loadSystemNameserversWith(func() ([]models.Nameserver, int, []string, error) {
 		return nil, 2, []string{"foo.tld"}, nil
@@ -309,10 +311,10 @@ func TestLoadSystemNameserversSeedsNdotsFromFlags(t *testing.T) {
 		t.Fatalf("ResolverOpts.SearchList = %v, want [foo.tld]", app.ResolverOpts.SearchList)
 	}
 
-	// Explicit --ndots=5 must win over the system value instead of being
-	// dropped (previously the flag never reached the resolvers).
+	// An already-configured ndots (5) must win over the system value, and
+	// --search=false must suppress the system search list.
 	app = newTestApp()
-	app.QueryFlags.Ndots = 5
+	app.ResolverOpts.Ndots = 5
 	app.QueryFlags.UseSearchList = false
 	err = app.loadSystemNameserversWith(func() ([]models.Nameserver, int, []string, error) {
 		return nil, 2, []string{"foo.tld"}, nil
@@ -325,6 +327,32 @@ func TestLoadSystemNameserversSeedsNdotsFromFlags(t *testing.T) {
 	}
 	if len(app.ResolverOpts.SearchList) != 0 {
 		t.Fatalf("ResolverOpts.SearchList = %v, want none with --search=false", app.ResolverOpts.SearchList)
+	}
+}
+
+func TestLoadNameserversSeedsNdotsOnExplicitNameserverPath(t *testing.T) {
+	// --ndots must reach the resolvers even when explicit @server
+	// nameservers are given (the system loader is skipped on that path).
+	app := newTestApp()
+	app.QueryFlags.Ndots = 5
+	app.QueryFlags.Nameservers = []string{"1.1.1.1"}
+	if err := app.LoadNameservers(); err != nil {
+		t.Fatalf("LoadNameservers: %v", err)
+	}
+	if app.ResolverOpts.Ndots != 5 {
+		t.Fatalf("ResolverOpts.Ndots = %d, want 5 on explicit path", app.ResolverOpts.Ndots)
+	}
+
+	// Unset --ndots on the explicit path stays -1 (no system default to
+	// apply; resolvers treat it as their own default).
+	app = newTestApp()
+	app.QueryFlags.Ndots = -1
+	app.QueryFlags.Nameservers = []string{"1.1.1.1"}
+	if err := app.LoadNameservers(); err != nil {
+		t.Fatalf("LoadNameservers: %v", err)
+	}
+	if app.ResolverOpts.Ndots != -1 {
+		t.Fatalf("ResolverOpts.Ndots = %d, want -1 when unset", app.ResolverOpts.Ndots)
 	}
 }
 

@@ -27,6 +27,13 @@ var ErrSystemNameservers = errors.New("unable to load system nameservers")
 func (app *App) LoadNameservers() error {
 	app.Logger.Debug("LoadNameservers: Initial nameservers", "nameservers", app.QueryFlags.Nameservers)
 
+	// ResolverOpts is not wired to the CLI anywhere else; seed ndots from
+	// QueryFlags (--ndots, -1 when unset) on every path so the flag reaches
+	// the resolvers instead of silently defaulting to 0.
+	if app.ResolverOpts.Ndots == 0 {
+		app.ResolverOpts.Ndots = app.QueryFlags.Ndots
+	}
+
 	app.Nameservers = []models.Nameserver{} // Clear existing nameservers
 
 	if len(app.QueryFlags.Nameservers) > 0 {
@@ -76,12 +83,6 @@ func (app *App) loadSystemNameserversWith(load systemNameserverLoader) error {
 		return fmt.Errorf("%w: error fetching system default nameserver: %w", ErrSystemNameservers, err)
 	}
 
-	if app.ResolverOpts.Ndots == 0 {
-		// ResolverOpts is not wired to the CLI anywhere else; seed it from
-		// QueryFlags (--ndots, -1 when unset) so the flag reaches the
-		// resolvers instead of silently defaulting to 0.
-		app.ResolverOpts.Ndots = app.QueryFlags.Ndots
-	}
 	if app.ResolverOpts.Ndots == -1 {
 		app.ResolverOpts.Ndots = ndots
 	}
